@@ -8,14 +8,13 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# Логи
+# Log
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Токен бота (вставь свой от @BotFather)
+# (@BotFather)
 TOKEN = "7827778941:AAErsqM4phOqhQY4xH3UKJMHuA_V-Wrtakk"
 
-# Переводы
 translations = {
     'ru': {
         'welcome': 'Добро пожаловать!',
@@ -59,7 +58,7 @@ translations = {
     }
 }
 
-# Инициализация базы данных
+#db
 def init_db():
     conn = sqlite3.connect('data.db')
     cursor = conn.cursor()
@@ -77,7 +76,6 @@ def init_db():
     conn.commit()
     return conn
 
-# Сохранение данных
 def save_to_db(conn, table, data):
     cursor = conn.cursor()
     if table == 'users':
@@ -90,7 +88,6 @@ def save_to_db(conn, table, data):
     conn.commit()
     logger.info(f"Saved to {table}: {data}")
 
-# Удаление данных
 def delete_from_db(conn, table, user_id, partner_id=None):
     cursor = conn.cursor()
     if table == 'active_chats':
@@ -102,7 +99,6 @@ def delete_from_db(conn, table, user_id, partner_id=None):
     conn.commit()
     logger.info(f"Deleted from {table}: user_id={user_id}, partner_id={partner_id}")
 
-# Загрузка данных при старте
 def load_from_db(conn):
     cursor = conn.cursor()
     cursor.execute('SELECT user_id, language FROM users')
@@ -114,24 +110,20 @@ def load_from_db(conn):
     logger.info(f"Loaded: user_languages={user_languages}, banned_users={banned_users}, active_chats={active_chats}")
     return user_languages, banned_users, active_chats
 
-# Инициализация
 conn = init_db()
 user_languages, banned_users, active_chats = load_from_db(conn)
-waiting_queue = []  # Очередь в памяти
+waiting_queue = []
 
-# FSM для админа
+# FSM 
 class AdminStates(StatesGroup):
     waiting_code = State()
     monitoring = State()
 
-# Инициализация бота
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot=bot)
 
-# Функция для соединения юзеров
 async def connect_users(user_id, lang):
     if len(waiting_queue) >= 2:
-        # Ищем партнёра, который не текущий юзер
         partner_id = next((uid for uid in waiting_queue if uid != user_id), None)
         if partner_id:
             waiting_queue.remove(user_id)
@@ -143,7 +135,7 @@ async def connect_users(user_id, lang):
             await bot.send_message(partner_id, translations[user_languages.get(partner_id, 'en')]['found_partner'])
             await bot.send_message(user_id, translations[lang]['found_partner'])
 
-# Команда /start
+# /start
 @dp.message(Command("start"))
 async def start(message: types.Message):
     user_id = message.from_user.id
@@ -162,17 +154,13 @@ async def start(message: types.Message):
         await message.answer(translations['en']['choose_language'], reply_markup=keyboard)
         return
     lang = user_languages[user_id]
-    # Удаляем дубликаты из очереди
     waiting_queue[:] = [uid for uid in waiting_queue if uid != user_id]
-    # Добавляем юзера в очередь
     if user_id not in waiting_queue:
         waiting_queue.append(user_id)
         logger.info(f"User {user_id} added to waiting_queue, waiting_queue={waiting_queue}")
         await message.answer(translations[lang]['waiting'])
-    # Проверяем, можно ли соединить
     await connect_users(user_id, lang)
 
-# Выбор языка
 @dp.callback_query()
 async def process_language_choice(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
@@ -182,20 +170,18 @@ async def process_language_choice(callback_query: types.CallbackQuery):
     logger.info(f"User {user_id} chose language: {lang}")
     await bot.send_message(user_id, translations[lang]['welcome'])
     await callback_query.message.delete()
-    # Автоматически запускаем поиск
     if user_id not in active_chats and user_id not in waiting_queue:
         waiting_queue.append(user_id)
         logger.info(f"User {user_id} added to waiting_queue after language choice, waiting_queue={waiting_queue}")
         await bot.send_message(user_id, translations[lang]['waiting'])
         await connect_users(user_id, lang)
 
-# Команда /next
+#/next
 @dp.message(Command("next"))
 async def next_chat(message: types.Message):
     user_id = message.from_user.id
     lang = user_languages.get(user_id, 'en')
     logger.info(f"User {user_id} triggered /next, active_chats={active_chats}, waiting_queue={waiting_queue}")
-    # Если юзер в чате, разрываем его и уведомляем партнёра
     if user_id in active_chats:
         partner_id = active_chats[user_id]
         del active_chats[user_id]
@@ -203,17 +189,14 @@ async def next_chat(message: types.Message):
         delete_from_db(conn, 'active_chats', user_id, partner_id)
         logger.info(f"Disconnected {user_id} from {partner_id}, active_chats={active_chats}")
         await bot.send_message(partner_id, translations[user_languages.get(partner_id, 'en')]['partner_left'])
-    # Удаляем дубликаты из очереди
     waiting_queue[:] = [uid for uid in waiting_queue if uid != user_id]
-    # Добавляем юзера в очередь
     if user_id not in waiting_queue:
         waiting_queue.append(user_id)
         logger.info(f"User {user_id} added to waiting_queue, waiting_queue={waiting_queue}")
         await message.answer(translations[lang]['waiting'])
-    # Проверяем, можно ли соединить
     await connect_users(user_id, lang)
 
-# Команда /quit
+# /quit
 @dp.message(Command("quit"))
 async def quit_chat(message: types.Message):
     user_id = message.from_user.id
@@ -231,13 +214,12 @@ async def quit_chat(message: types.Message):
         logger.info(f"Removed {user_id} from waiting_queue, waiting_queue={waiting_queue}")
     await message.answer(translations[lang]['quit'])
 
-# Команда /language
+# /language
 @dp.message(Command("language"))
 async def change_language(message: types.Message):
     user_id = message.from_user.id
     lang = user_languages.get(user_id, 'en')
     logger.info(f"User {user_id} triggered /language with text: {message.text}")
-    # Парсим аргументы вручную
     args = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
     if args in ['ru', 'en']:
         user_languages[user_id] = args
@@ -246,7 +228,6 @@ async def change_language(message: types.Message):
     else:
         await message.answer("Только ru или en, братан!" if lang == 'ru' else "Only ru or en, dude!")
 
-# Пересылка сообщений
 @dp.message()
 async def forward_message(message: types.Message):
     user_id = message.from_user.id
@@ -269,7 +250,6 @@ async def forward_message(message: types.Message):
     else:
         await message.answer(translations[lang]['not_in_chat'])
 
-# Админ-панель: вход
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -278,7 +258,6 @@ async def admin_panel(message: types.Message, state: FSMContext):
     await message.answer(translations[lang]['admin_prompt'])
     await state.set_state(AdminStates.waiting_code)
 
-# Проверка кода админа
 @dp.message(AdminStates.waiting_code)
 async def check_admin_code(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -298,7 +277,6 @@ async def check_admin_code(message: types.Message, state: FSMContext):
         await message.answer(translations[lang]['wrong_code'])
         await state.clear()
 
-# Бан юзера
 @dp.message(AdminStates.monitoring, Command("ban"))
 async def ban_user(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -318,7 +296,6 @@ async def ban_user(message: types.Message, state: FSMContext):
     except (IndexError, ValueError):
         await message.answer(translations[lang]['ban_usage'])
 
-# Разбан юзера
 @dp.message(AdminStates.monitoring, Command("unban"))
 async def unban_user(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -332,7 +309,6 @@ async def unban_user(message: types.Message, state: FSMContext):
     except (IndexError, ValueError):
         await message.answer(translations[lang]['unban_usage'])
 
-# Запуск бота
 async def main():
     logger.info("Starting bot...")
     await dp.start_polling(bot)
